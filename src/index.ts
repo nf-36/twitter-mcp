@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
@@ -17,6 +17,7 @@ import {
   TwitterError
 } from './types.js';
 import dotenv from 'dotenv';
+import express from 'express';
 
 export class TwitterServer {
   private server: Server;
@@ -207,9 +208,27 @@ export class TwitterServer {
   }
 
   async start(): Promise<void> {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('Twitter MCP server running on stdio');
+    const app = express();
+    let transport: SSEServerTransport | null = null;
+
+    app.get('/sse', async (req, res) => {
+      console.error('New SSE connection');
+      transport = new SSEServerTransport('/messages', res);
+      await this.server.connect(transport);
+    });
+
+    app.post('/messages', async (req, res) => {
+      if (!transport) {
+        res.status(400).send('No active SSE connection');
+        return;
+      }
+      await transport.handlePostMessage(req, res);
+    });
+
+    const port = process.env.PORT || 3000;
+    app.listen(port, () => {
+      console.error(`Twitter MCP server running on SSE at http://0.0.0.0:${port}`);
+    });
   }
 }
 
